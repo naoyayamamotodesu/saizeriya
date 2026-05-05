@@ -5,13 +5,14 @@
   "type": "module",
   "scripts": {
     "dev": "vite dev",
-    "build": "bun --cwd ../../packages/client run build && vite build",
+    "build": "bun run --cwd ../../packages/client build && vite build",
     "preview": "vite preview",
     "prepare": "svelte-kit sync || echo ''",
     "check": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json",
     "check:watch": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json --watch"
   },
   "dependencies": {
+    "@google/genai": "^1.52.0",
     "qr-scanner": "^1.4.2",
     "saizeriya.js": "workspace:*"
   },
