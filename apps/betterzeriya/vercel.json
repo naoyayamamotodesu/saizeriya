@@ -1,5 +1,5 @@
 {
-  "installCommand": "npm i -g bun && bun install",
-  "buildCommand": "bun --cwd ../../packages/client run build && vite build",
+  "installCommand": "cd ../.. && npm i -g bun && bun install",
+  "buildCommand": "cd ../.. && bun run --cwd packages/client build && bun run --cwd apps/betterzeriya build",
   "framework": "sveltekit"
 }
