@@ -79,8 +79,12 @@
 		imageUrl?: string | null;
 	};
 
-	type ActiveTab = 'add' | 'cart' | 'history' | 'call' | 'checkout';
+	type ActiveTab = 'add' | 'cart' | 'ai' | 'history' | 'call' | 'checkout';
 	type MenuStatus = 'loading' | 'available' | 'unavailable' | 'error';
+	type ChatMessage = {
+		role: 'user' | 'assistant';
+		content: string;
+	};
 
 	const normalizeDefaultMenu = (entries: DefaultMenuEntry[]) =>
 		entries
@@ -124,6 +128,14 @@
 	let toast = $state('');
 	let error = $state('');
 	let busy = $state(false);
+	let chatInput = $state('');
+	let chatBusy = $state(false);
+	let chatMessages = $state<ChatMessage[]>([
+		{
+			role: 'assistant',
+			content: '予算や気分を教えてください。いまのカートとメニューから、組み合わせを一緒に考えます。'
+		}
+	]);
 	let activeTab = $state<ActiveTab>('add');
 
 	const cartStorageKey = $derived(`betterzeriya:${sessionId}:cart`);
@@ -152,9 +164,15 @@
 	const tabItems = $derived([
 		{ id: 'add' as const, label: '注文追加', icon: 'i-tabler-plus' },
 		{ id: 'cart' as const, label: '注文かご', icon: 'i-tabler-shopping-cart', count: totalCount },
+		{ id: 'ai' as const, label: 'AI相談', icon: 'i-tabler-sparkles' },
 		{ id: 'history' as const, label: '注文履歴', icon: 'i-tabler-history' },
 		{ id: 'call' as const, label: '店員呼出', icon: 'i-tabler-bell' },
 		{ id: 'checkout' as const, label: '会計', icon: 'i-tabler-receipt' }
+	]);
+	const suggestedPrompts = $derived([
+		`${clientState?.peopleCount ?? 2}人でちょうどいい組み合わせを考えて`,
+		'今のカートに足すなら何がいい？',
+		'1000円くらいで満足感ある注文にしたい'
 	]);
 
 	const notify = (message: string) => {
@@ -483,6 +501,47 @@
 		} catch {}
 	};
 
+	const sendChatMessage = async (prompt = chatInput) => {
+		const content = prompt.trim();
+		if (!content || chatBusy) {
+			return;
+		}
+
+		const nextMessages = [...chatMessages, { role: 'user' as const, content }];
+		chatMessages = nextMessages;
+		chatInput = '';
+		chatBusy = true;
+		error = '';
+
+		try {
+			const response = await fetch('/api/chat', {
+				method: 'POST',
+				headers: { 'content-type': 'application/json' },
+				body: JSON.stringify({
+					messages: nextMessages,
+					peopleCount: clientState?.peopleCount,
+					cartContext: localCart,
+					menuContext: filteredMenu.slice(0, 60).map((item) => ({
+						code: item.code,
+						name: item.name,
+						price: item.price,
+						category: item.category
+					}))
+				})
+			});
+			const payload = (await response.json()) as { reply?: string; error?: string };
+			if (!response.ok || !payload.reply) {
+				throw new Error(payload.error ?? 'AI の応答に失敗しました');
+			}
+			chatMessages = [...nextMessages, { role: 'assistant', content: payload.reply }];
+		} catch (caught) {
+			error = caught instanceof Error ? caught.message : 'AI の応答に失敗しました';
+			chatMessages = nextMessages;
+		} finally {
+			chatBusy = false;
+		}
+	};
+
 	onMount(async () => {
 		restoreOfficialSession();
 		restoreCart();
@@ -670,6 +729,54 @@
 					<button class="secondary" onclick={() => (activeTab = 'add')}>注文追加</button>
 					<button class="primary" onclick={submitOrder} disabled={!canOrder}>注文送信</button>
 				</div>
+			</div>
+		{:else if activeTab === 'ai'}
+			<div class="tab-panel ai-panel">
+				<div class="checkout-head">
+					<div>
+						<p class="eyebrow">AI</p>
+						<h2>AI相談</h2>
+					</div>
+					<strong>{totalCount} 点 / ¥{totalPrice.toLocaleString()}</strong>
+				</div>
+
+				<div class="prompt-chips" aria-label="相談例">
+					{#each suggestedPrompts as prompt}
+						<button class="secondary" onclick={() => sendChatMessage(prompt)} disabled={chatBusy}>
+							{prompt}
+						</button>
+					{/each}
+				</div>
+
+				<div class="chat-list" aria-live="polite">
+					{#each chatMessages as message}
+						<div class="chat-message" class:user={message.role === 'user'}>
+							<span>{message.role === 'user' ? 'あなた' : 'AI'}</span>
+							<p>{message.content}</p>
+						</div>
+					{/each}
+					{#if chatBusy}
+						<div class="chat-message">
+							<span>AI</span>
+							<p>考えています...</p>
+						</div>
+					{/if}
+				</div>
+
+				<form
+					class="chat-compose"
+					onsubmit={(event) => {
+						event.preventDefault();
+						void sendChatMessage();
+					}}
+				>
+					<input
+						bind:value={chatInput}
+						placeholder="例: 2人で2000円くらい、軽めにしたい"
+						disabled={chatBusy}
+					/>
+					<button class="primary" disabled={chatBusy || !chatInput.trim()}>送信</button>
+				</form>
 			</div>
 		{:else if activeTab === 'history'}
 			<div class="tab-panel">
